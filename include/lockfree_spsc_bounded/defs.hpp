@@ -39,6 +39,18 @@ private:
   // 6. static constexpr size_t capcity to store the capcity for operations in
   // functions Why static ?? Why constexpr ?? [Reason this]
 
+  static constexpr size_t CLS = tsfq::__impl::cache_line_size;
+  static constexpr size_t capacity = Capacity;
+  static constexpr size_t mask = Capacity - 1;
+
+  alignas(CLS) std::atomic<size_t> head;
+  size_t tail_cache;
+
+  alignas(CLS) std::atomic<size_t> tail;
+  size_t head_cache;
+
+  alignas(CLS) T arr[Capacity];
+
 public:
   // Public Member functions :
   // Add appropriate constructors and destructors -> Add here only
@@ -57,6 +69,27 @@ public:
   // 9. Add size() function
   // 10. Any more suggestions ??
   // 11. Why no shared_ptr ?? [Reason this]
+
+  static_assert(Capacity > 0 && (Capacity & (Capacity - 1)) == 0,
+                "Capacity must be a power of 2");
+
+  lockfree_spsc_bounded() : head(0), tail_cache(0), tail(0), head_cache(0) {}
+  ~lockfree_spsc_bounded() = default;
+
+  // No shared_ptr is used because in a lock-free SPSC bounded queue, we manage 
+  // ownership via the head/tail indices and the fixed-size array. 
+  // Shared pointers introduce atomic reference counting overhead which would 
+  // kill the performance benefits of a lock-free queue.
+
+  void wait_and_push(T value);
+  bool try_push(T value);
+  void wait_and_pop(T &value);
+  bool try_pop(T &value);
+  bool empty() const;
+  size_t size() const;
+  bool peek(T &value) const;
+
+  template <typename... Args> bool emplace_back(Args &&...args);
 };
 } // namespace tsfqueue::__impl
 
