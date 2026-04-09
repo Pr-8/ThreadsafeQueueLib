@@ -9,31 +9,23 @@ using queue = tsfqueue::__impl::lockfree_spsc_bounded<T, Capacity>;
 
 template <typename T, size_t Capacity>
 void queue<T, Capacity>::wait_and_push(T value) {
-  // Busy wait until try_push succeeds.
-  // We use std::move to avoid unnecessary copies.
   while (!try_push(std::move(value))) {
-    // Optionally: add a CPU hint like __builtin_ia32_pause() or std::this_thread::yield()
+    // maybe add some optimization here
   }
 }
 
 template <typename T, size_t Capacity>
 bool queue<T, Capacity>::try_push(T value) {
-  // Load tail (relaxed is fine because only the producer thread modifies it)
   size_t const t = tail.load(std::memory_order_relaxed);
-
-  // Check if queue is full using the cached head pointer first.
+  //OPtimization 1: Use simple check before doing atomic load
   if (t - head_cache >= Capacity) {
-    // Refresh head_cache from the atomic head with acquire semantics
     head_cache = head.load(std::memory_order_acquire);
     if (t - head_cache >= Capacity) {
       return false;
     }
   }
-
-  // Use the mask trick for fast indexing
+  // Optimization 2: USe bitwise AND instead of expensive modulo
   arr[t & mask] = std::move(value);
-
-  // Release the new tail so the consumer can see the data
   tail.store(t + 1, std::memory_order_release);
   return true;
 }
