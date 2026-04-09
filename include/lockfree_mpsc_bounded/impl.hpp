@@ -28,6 +28,8 @@ bool lockfree_mpsc_bounded<T, Capacity>::try_push(T &&value) {
     intptr_t dif = (intptr_t)seq - (intptr_t)pos;
 
     if (dif == 0) {
+      // Try to claim this slot by incrementing the tail
+      // One producer will always win and claim the slot
       if (tail.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed)) {
         break;
       }
@@ -35,11 +37,10 @@ bool lockfree_mpsc_bounded<T, Capacity>::try_push(T &&value) {
       // Queue is full
       return false;
     } else {
-      // Another thread already pushed here, reload tail
+      // Another thread already pushed here so reload the tail and try for the next slot
       pos = tail.load(std::memory_order_relaxed);
     }
   }
-
   cell->data = std::move(value);
   cell->sequence.store(pos + 1, std::memory_order_release);
   return true;
@@ -48,36 +49,27 @@ bool lockfree_mpsc_bounded<T, Capacity>::try_push(T &&value) {
 template <typename T, size_t Capacity>
 void lockfree_mpsc_bounded<T, Capacity>::wait_and_push(T value) {
   while (!try_push(std::move(value))) {
-    // Spin
+    // Spin and wait
   }
 }
 
 template <typename T, size_t Capacity>
 bool lockfree_mpsc_bounded<T, Capacity>::try_pop(T &value) {
-  cell_t *cell;
-  size_t pos = head.load(std::memory_order_relaxed);
-  while (true) {
-    cell = &buffer[pos & mask];
+ size_t pos = head.load(std::memory_order_relaxed);
+    cell_t* cell = &buffer[pos & mask];
     size_t seq = cell->sequence.load(std::memory_order_acquire);
+    
+    // Check if the Producer has finished writing to this cell
     intptr_t dif = (intptr_t)seq - (intptr_t)(pos + 1);
-
     if (dif == 0) {
-      if (head.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed)) {
-        break;
-      }
-    } else if (dif < 0) {
-      // Queue is empty
-      return false;
-    } else {
-      // Reload head
-      pos = head.load(std::memory_order_relaxed);
+        // We own the index so we can just move the data
+        value = std::move(cell->data);
+        // Reset the sequence for the next producer lap
+        cell->sequence.store(pos + mask + 1, std::memory_order_release);
+        head.store(pos + 1, std::memory_order_relaxed);
+        return true;
     }
-  }
-
-  value = std::move(cell->data);
-  // Important: Use pos + Capacity to reset the sequence for the next producer to use this slot.
-  cell->sequence.store(pos + mask + 1, std::memory_order_release);
-  return true;
+    return false;
 }
 
 template <typename T, size_t Capacity>

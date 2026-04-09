@@ -39,17 +39,16 @@ private:
   // 6. static constexpr size_t capcity to store the capcity for operations in
   // functions Why static ?? Why constexpr ?? [Reason this]
 
-  static constexpr size_t CLS = tsfq::__impl::cache_line_size;
   static constexpr size_t capacity = Capacity;
   static constexpr size_t mask = Capacity - 1;
 
-  alignas(CLS) std::atomic<size_t> head;
+  alignas(std::hardware_destructive_interference_size) std::atomic<size_t> head;
   size_t tail_cache;
 
-  alignas(CLS) std::atomic<size_t> tail;
+  alignas(std::hardware_destructive_interference_size) std::atomic<size_t> tail;
   size_t head_cache;
 
-  alignas(CLS) T arr[Capacity];
+  alignas(std::hardware_destructive_interference_size) T arr[Capacity];
 
 public:
   // Public Member functions :

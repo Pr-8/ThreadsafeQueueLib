@@ -10,9 +10,7 @@ using queue = tsfqueue::__impl::lockfree_spsc_bounded<T, Capacity>;
 template <typename T, size_t Capacity>
 void queue<T, Capacity>::wait_and_push(T value) {
   // Busy wait until try_push succeeds.
-  // We use std::move to avoid unnecessary copies.
   while (!try_push(std::move(value))) {
-    // Optionally: add a CPU hint like __builtin_ia32_pause() or std::this_thread::yield()
   }
 }
 
@@ -20,20 +18,18 @@ template <typename T, size_t Capacity>
 bool queue<T, Capacity>::try_push(T value) {
   // Load tail (relaxed is fine because only the producer thread modifies it)
   size_t const t = tail.load(std::memory_order_relaxed);
-
-  // Check if queue is full using the cached head pointer first.
+  // First check if queue is full using the cached head pointer.
   if (t - head_cache >= Capacity) {
-    // Refresh head_cache from the atomic head with acquire semantics
+    // If yes, load the atomic head pointer to get the actual location
     head_cache = head.load(std::memory_order_acquire);
     if (t - head_cache >= Capacity) {
+      // If still yes, the queue is full
       return false;
     }
   }
-
-  // Use the mask trick for fast indexing
+  // mask variable for fast indexing
   arr[t & mask] = std::move(value);
-
-  // Release the new tail so the consumer can see the data
+  // Update the atomic tail pointer
   tail.store(t + 1, std::memory_order_release);
   return true;
 }
@@ -43,18 +39,17 @@ bool queue<T, Capacity>::try_pop(T &value) {
   // Load head (relaxed is fine because only the consumer thread modifies it)
   size_t const h = head.load(std::memory_order_relaxed);
 
-  // Check if queue is empty using the cached tail pointer first.
+  // First check if queue is empty using the cached tail pointer.
   if (h == tail_cache) {
-    // Refresh tail_cache from the atomic tail with acquire semantics
+    //  If yes, load the atomic tail pointer to get the actual location
     tail_cache = tail.load(std::memory_order_acquire);
     if (h == tail_cache) {
+      // If still yes, the queue is empty
       return false;
     }
   }
-
   value = std::move(arr[h & mask]);
-
-  // Release the new head so the producer knows a slot is free
+  // Update the atomic head pointer
   head.store(h + 1, std::memory_order_release);
   return true;
 }
@@ -62,7 +57,7 @@ bool queue<T, Capacity>::try_pop(T &value) {
 template <typename T, size_t Capacity>
 void queue<T, Capacity>::wait_and_pop(T &value) {
   while (!try_pop(value)) {
-    // Busy wait
+    // Busy wait until try_pop works
   }
 }
 
